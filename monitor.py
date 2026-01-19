@@ -173,18 +173,35 @@ async def main_async(args):
             products = [{"name": "手動指定", "url": args.url, "site": site}]
     
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        # ブラウザを準備（Chromium + Firefox）
+        chromium_browser = await p.chromium.launch(headless=True)
+        firefox_browser = None  # 必要時のみ起動
         
         results = []
         available_count = 0
         
         for product in products:
+            # サイトに応じてブラウザを選択
+            handler = get_handler(product["site"])
+            
+            if handler and getattr(handler, 'USE_FIREFOX', False):
+                # Firefoxが必要なサイト
+                if firefox_browser is None:
+                    print("[INFO] Firefoxを起動中...")
+                    firefox_browser = await p.firefox.launch(headless=True)
+                browser = firefox_browser
+            else:
+                browser = chromium_browser
+            
             result = await check_single_product(browser, product, webhook_url, args.dry_run or args.test)
             results.append(result)
             if result["available"]:
                 available_count += 1
         
-        await browser.close()
+        # ブラウザを閉じる
+        await chromium_browser.close()
+        if firefox_browser:
+            await firefox_browser.close()
     
     # サマリー表示
     print("\n" + "=" * 60)

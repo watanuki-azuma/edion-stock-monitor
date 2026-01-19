@@ -60,6 +60,12 @@ products:
 2. Settings → Secrets → `DISCORD_WEBHOOK_URL` を設定
 3. 5分ごとに自動チェック開始
 
+**ローカル実行時の準備:**
+```bash
+pip install -r requirements.txt
+playwright install chromium firefox
+```
+
 ## 📁 ファイル構成
 
 ```

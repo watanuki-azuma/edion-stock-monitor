@@ -9,28 +9,28 @@ products:
     enabled: true
     
   # ビックカメラ iPhone 17 (256GB) 全5色
-  # ※Bot対策のため一時的に無効化（HTTP/2エラー発生）
+  # Firefoxで動作確認済み
   - name: "iPhone 17 ラベンダー"
     url: "https://www.biccamera.com/bc/item/14459235/"
     site: "biccamera"
-    enabled: false
+    enabled: true
     
   - name: "iPhone 17 ブラック"
     url: "https://www.biccamera.com/bc/item/14459232/"
     site: "biccamera"
-    enabled: false
+    enabled: true
     
   - name: "iPhone 17 ホワイト"
     url: "https://www.biccamera.com/bc/item/14459233/"
     site: "biccamera"
-    enabled: false
+    enabled: true
     
   - name: "iPhone 17 ミストブルー"
     url: "https://www.biccamera.com/bc/item/14459234/"
     site: "biccamera"
-    enabled: false
+    enabled: true
     
   - name: "iPhone 17 セージ"
     url: "https://www.biccamera.com/bc/item/14459236/"
     site: "biccamera"
-    enabled: false
+    enabled: true

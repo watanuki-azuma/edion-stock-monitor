@@ -1,138 +1,54 @@
 """
-エディオン在庫監視スクリプト（Playwright版）
+複数サイト対応 在庫監視スクリプト v2
 
-Playwrightを使用して実際のブラウザで商品ページにアクセスし、
-在庫状況をチェック。在庫が復活した場合、Discord Webhookで通知を送信する。
+YAML設定ファイルから監視対象を読み込み、
+各サイトに対応したハンドラーで在庫をチェック。
+在庫復活時にDiscord Webhookで通知する。
 """
 
 import os
 import sys
 import argparse
 import asyncio
-import requests
+from pathlib import Path
 from datetime import datetime
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
-# デフォルト設定
-DEFAULT_PRODUCT_URL = "https://www.edion.com/detail.html?p_cd=00084797278"
+import yaml
+import requests
+from playwright.async_api import async_playwright
 
-# 在庫ありと判定するキーワード
-AVAILABLE_KEYWORDS = ["カートに入れる", "予約する", "在庫あり", "予約受付中"]
-# 売り切れと判定するキーワード
-SOLDOUT_KEYWORDS = ["売り切れ", "在庫なし", "販売終了", "予約終了"]
+from sites import get_handler, ProductInfo
 
-
-async def fetch_product_page(url: str) -> dict | None:
-    """Playwrightで商品ページを取得"""
-    try:
-        async with async_playwright() as p:
-            # ヘッドレスブラウザを起動
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                locale="ja-JP",
-            )
-            page = await context.new_page()
-            
-            # ページにアクセス（domcontentloadedで待機、タイムアウト延長）
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            
-            # ページコンテンツの読み込みを待つ
-            try:
-                await page.wait_for_selector("h1", timeout=10000)
-            except Exception:
-                pass  # セレクタが見つからなくても続行
-            
-            # 少し待機してJSの実行を待つ
-            await page.wait_for_timeout(3000)
-            
-            # ページのテキストを取得
-            page_text = await page.inner_text("body")
-            
-            # 商品名を取得
-            try:
-                name = await page.inner_text("h1")
-            except Exception:
-                name = "商品名取得失敗"
-            
-            # 価格を取得
-            try:
-                price_elem = page.locator(".price, .item-price, .selling-price").first
-                price = await price_elem.inner_text()
-            except Exception:
-                price = "価格取得失敗"
-            
-            # カートボタンの状態を確認
-            cart_button_enabled = False
-            try:
-                # カートに入れるボタンを探す
-                cart_button = page.locator('button:has-text("カート"), button:has-text("予約"), .add-to-cart').first
-                is_disabled = await cart_button.get_attribute("disabled")
-                cart_button_enabled = is_disabled is None
-            except Exception:
-                pass
-            
-            await browser.close()
-            
-            return {
-                "page_text": page_text,
-                "name": name.strip() if name else "不明",
-                "price": price.strip() if price else "不明",
-                "cart_button_enabled": cart_button_enabled,
-            }
-            
-    except PlaywrightTimeout:
-        print("[ERROR] ページ読み込みがタイムアウトしました")
-        return None
-    except Exception as e:
-        print(f"[ERROR] ページ取得に失敗: {e}")
-        return None
+# 設定ファイルのデフォルトパス
+CONFIG_FILE = Path(__file__).parent / "config.yaml"
 
 
-def analyze_stock_status(page_data: dict) -> dict:
-    """在庫状態を解析"""
-    page_text = page_data["page_text"]
+def load_config(config_path: Path) -> list[dict]:
+    """設定ファイルを読み込む"""
+    if not config_path.exists():
+        print(f"[ERROR] 設定ファイルが見つかりません: {config_path}")
+        return []
     
-    is_available = False
-    status = "不明"
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
     
-    # 売り切れキーワードをチェック
-    for keyword in SOLDOUT_KEYWORDS:
-        if keyword in page_text:
-            status = "売り切れ"
-            break
-    
-    # 購入可能キーワードをチェック
-    for keyword in AVAILABLE_KEYWORDS:
-        if keyword in page_text:
-            # カートボタンが有効かどうかで最終判定
-            if page_data["cart_button_enabled"]:
-                is_available = True
-                status = "購入可能"
-            elif "売り切れ" not in status:
-                status = keyword + "（ボタン無効）"
-            break
-    
-    return {
-        "name": page_data["name"],
-        "price": page_data["price"],
-        "status": status,
-        "is_available": is_available,
-    }
+    products = config.get("products", [])
+    # enabledが True のものだけフィルタ
+    return [p for p in products if p.get("enabled", True)]
 
 
-def send_discord_notification(webhook_url: str, product_info: dict, product_url: str) -> bool:
+def send_discord_notification(webhook_url: str, product_info: ProductInfo, site_name: str) -> bool:
     """Discord Webhookで通知を送信"""
     
     embed = {
-        "title": "🎉 在庫復活！購入可能です！",
-        "description": f"**{product_info['name']}**",
-        "color": 0x00FF00,  # 緑色
+        "title": f"🎉 {site_name}で在庫復活！",
+        "description": f"**{product_info.name}**",
+        "color": 0x00FF00,
         "fields": [
-            {"name": "💰 価格", "value": product_info["price"], "inline": True},
-            {"name": "📦 状態", "value": product_info["status"], "inline": True},
+            {"name": "💰 価格", "value": product_info.price, "inline": True},
+            {"name": "📦 状態", "value": product_info.status, "inline": True},
+            {"name": "🔗 リンク", "value": f"[購入ページへ]({product_info.url})", "inline": False},
         ],
-        "url": product_url,
         "footer": {"text": f"検知時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"},
     }
     
@@ -144,63 +60,151 @@ def send_discord_notification(webhook_url: str, product_info: dict, product_url:
     try:
         response = requests.post(webhook_url, json=payload, timeout=10)
         response.raise_for_status()
-        print("[SUCCESS] Discord通知を送信しました")
+        print(f"[SUCCESS] Discord通知を送信しました: {product_info.name}")
         return True
     except requests.RequestException as e:
         print(f"[ERROR] Discord通知の送信に失敗: {e}")
         return False
 
 
+async def check_single_product(browser, product: dict, webhook_url: str, dry_run: bool) -> dict:
+    """単一商品の在庫をチェック"""
+    handler = get_handler(product["site"])
+    if not handler:
+        print(f"[WARNING] 未対応サイト: {product['site']}")
+        return {"product": product, "status": "未対応サイト", "available": False}
+    
+    print(f"\n[CHECK] {product['name']} ({handler.SITE_NAME})")
+    print(f"        URL: {product['url']}")
+    
+    # サイトに応じたブラウザ設定
+    context_options = {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "locale": "ja-JP",
+        "viewport": {"width": 1920, "height": 1080},
+        "extra_http_headers": {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "ja,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Cache-Control": "no-cache",
+            "Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+        }
+    }
+    
+    context = await browser.new_context(**context_options)
+    page = await context.new_page()
+    
+    try:
+        info = await handler.fetch_product_info(page, product["url"])
+        
+        if info:
+            print(f"        商品名: {info.name}")
+            print(f"        価格: {info.price}")
+            print(f"        状態: {info.status}")
+            print(f"        購入可能: {'はい ✅' if info.is_available else 'いいえ'}")
+            
+            if info.is_available:
+                print(f"[ALERT] ★★★ 在庫復活！ ★★★")
+                if not dry_run and webhook_url:
+                    send_discord_notification(webhook_url, info, handler.SITE_NAME)
+            
+            return {"product": product, "status": info.status, "available": info.is_available}
+        else:
+            print(f"        [ERROR] 情報取得失敗")
+            return {"product": product, "status": "取得失敗", "available": False}
+            
+    finally:
+        await context.close()
+
+
 async def main_async(args):
     """非同期メイン処理"""
     
-    # Discord Webhook URLを環境変数から取得
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "")
     
-    if not webhook_url and not args.dry_run:
+    if not webhook_url and not args.dry_run and not args.test:
         print("[ERROR] 環境変数 DISCORD_WEBHOOK_URL が設定されていません")
         sys.exit(1)
     
-    print(f"[INFO] 監視URL: {args.url}")
-    print(f"[INFO] 実行時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 60)
+    print("在庫監視ツール v2")
+    print(f"実行時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 60)
     
     # テスト通知モード
     if args.test_notify:
-        test_info = {
-            "name": "テスト商品",
-            "price": "¥9,999",
-            "status": "テスト通知",
-            "is_available": True,
-        }
-        send_discord_notification(webhook_url, test_info, args.url)
+        test_info = ProductInfo(
+            name="テスト商品",
+            price="¥9,999",
+            status="テスト通知",
+            is_available=True,
+            url="https://example.com",
+        )
+        send_discord_notification(webhook_url, test_info, "テストサイト")
         return
     
-    # 商品ページを取得
-    page_data = await fetch_product_page(args.url)
-    if not page_data:
+    # 設定ファイルを読み込み
+    config_path = Path(args.config) if args.config else CONFIG_FILE
+    products = load_config(config_path)
+    
+    if not products:
+        print("[ERROR] 監視対象の商品がありません")
         sys.exit(1)
     
-    # 在庫状態を解析
-    product_info = analyze_stock_status(page_data)
+    print(f"\n監視対象: {len(products)}件")
     
-    print(f"[INFO] 商品名: {product_info['name']}")
-    print(f"[INFO] 価格: {product_info['price']}")
-    print(f"[INFO] 状態: {product_info['status']}")
-    print(f"[INFO] 購入可能: {'はい' if product_info['is_available'] else 'いいえ'}")
+    # 特定URLのみチェック
+    if args.url:
+        products = [p for p in products if p["url"] == args.url]
+        if not products:
+            # URLが設定にない場合、サイトを自動判定して追加
+            site = "unknown"
+            if "edion.com" in args.url:
+                site = "edion"
+            elif "biccamera.com" in args.url:
+                site = "biccamera"
+            products = [{"name": "手動指定", "url": args.url, "site": site}]
     
-    # 在庫ありの場合、通知を送信
-    if product_info["is_available"]:
-        print("[ALERT] ★★★ 在庫が復活しました！ ★★★")
-        if not args.dry_run:
-            send_discord_notification(webhook_url, product_info, args.url)
-    else:
-        print("[INFO] 現在は売り切れです。次回チェックまで待機します。")
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        
+        results = []
+        available_count = 0
+        
+        for product in products:
+            result = await check_single_product(browser, product, webhook_url, args.dry_run or args.test)
+            results.append(result)
+            if result["available"]:
+                available_count += 1
+        
+        await browser.close()
+    
+    # サマリー表示
+    print("\n" + "=" * 60)
+    print("サマリー")
+    print("=" * 60)
+    print(f"チェック完了: {len(results)}件")
+    print(f"在庫あり: {available_count}件")
+    
+    if args.test:
+        print("\n[INFO] テストモード: 通知は送信されませんでした")
+    elif args.dry_run:
+        print("\n[INFO] ドライラン: 通知は送信されませんでした")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="エディオン在庫監視ツール")
-    parser.add_argument("--url", default=DEFAULT_PRODUCT_URL, help="監視する商品URL")
+    parser = argparse.ArgumentParser(description="複数サイト対応 在庫監視ツール")
+    parser.add_argument("--config", help="設定ファイルのパス")
+    parser.add_argument("--url", help="特定URLのみチェック")
     parser.add_argument("--dry-run", action="store_true", help="通知を送信せずに結果を表示")
+    parser.add_argument("--test", action="store_true", help="テストモード（通知なし）")
     parser.add_argument("--test-notify", action="store_true", help="テスト通知を送信")
     args = parser.parse_args()
     

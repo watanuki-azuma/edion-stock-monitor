@@ -1,64 +1,77 @@
-# エディオン在庫監視ツール
+# 複数サイト対応 在庫監視ツール v2
 
-エディオンの商品ページを定期的に監視し、在庫が復活したらDiscordに通知するツールです。
+複数のECサイト（エディオン、ビックカメラ等）の商品を一括監視し、在庫復活時にDiscordで通知するツール。
 
-## 🎯 対象商品
+## 🎯 監視対象
 
-- **商品名**: タカラトミー ポケモン30周年記念 おかえり!ピカチュウ1/1
-- **URL**: https://www.edion.com/detail.html?p_cd=00084797278
+`config.yaml` で設定：
 
-## 🚀 セットアップ
+| サイト | 商品 |
+|--------|------|
+| エディオン | ポケモン30周年 ピカチュウ1/1 |
+| ビックカメラ | iPhone 17（全5色） |
 
-### 1. Discord Webhookの作成
+## 🚀 使い方
 
-1. Discordサーバーで通知を受け取りたいチャンネルを開く
-2. チャンネル設定（⚙️）→「連携サービス」→「ウェブフック」
-3. 「新しいウェブフック」をクリック
-4. 名前を設定（例：「在庫通知」）
-5. 「ウェブフックURLをコピー」をクリック
-
-### 2. GitHubリポジトリの設定
-
-1. このフォルダを新しいGitHubリポジトリにpush
-2. リポジトリの Settings → Secrets and variables → Actions
-3. 「New repository secret」をクリック
-4. Name: `DISCORD_WEBHOOK_URL`
-5. Secret: コピーしたWebhook URL
-6. 「Add secret」をクリック
-
-### 3. GitHub Actionsの有効化
-
-- リポジトリにpush後、自動的にActionsが有効になります
-- パブリックリポジトリであれば無料で利用可能
-- 5分ごとに自動実行されます
-
-## 💻 ローカルでの実行
+### テストモード（通知なし）
 
 ```bash
-# 依存パッケージをインストール
-pip install -r requirements.txt
+# 全商品をチェック
+python monitor.py --test
 
-# ドライラン（通知なしで動作確認）
-python monitor.py --dry-run
+# 特定URLのみチェック
+python monitor.py --test --url "https://..."
 
-# Discord通知テスト
-export DISCORD_WEBHOOK_URL="your_webhook_url_here"
+# 通知テスト
 python monitor.py --test-notify
+```
 
-# 本番実行
+### 本番実行
+
+```bash
+export DISCORD_WEBHOOK_URL="your_webhook_url"
 python monitor.py
 ```
 
-## 📝 コマンドラインオプション
+## 📝 商品の追加・削除
 
-| オプション | 説明 |
-|-----------|------|
-| `--url URL` | 監視する商品URLを指定（デフォルト: ピカチュウ商品） |
-| `--dry-run` | 通知を送信せずに結果を確認 |
-| `--test-notify` | テスト通知を送信 |
+`config.yaml` を編集：
 
-## ⚠️ 注意事項
+```yaml
+products:
+  - name: "商品名"
+    url: "https://..."
+    site: "edion"  # または "biccamera"
+    enabled: true   # false で監視停止
+```
 
-- GitHub Actionsの定期実行は最短5分間隔です
-- パブリックリポジトリでないと無料枠を超える可能性があります
-- エディオンのサイト構造が変更された場合、スクリプトの修正が必要になる可能性があります
+## ⚙️ 対応サイト
+
+| サイトID | サイト名 |
+|----------|----------|
+| `edion` | エディオン |
+| `biccamera` | ビックカメラ |
+
+新サイト追加は `sites/` に新しいハンドラーを作成。
+
+## 🔧 GitHub Actionsで自動実行
+
+1. リポジトリにpush
+2. Settings → Secrets → `DISCORD_WEBHOOK_URL` を設定
+3. 5分ごとに自動チェック開始
+
+## 📁 ファイル構成
+
+```
+edion_stock_monitor/
+├── monitor.py          # メインスクリプト
+├── config.yaml         # 監視対象設定
+├── requirements.txt    # 依存パッケージ
+├── sites/              # サイト別ハンドラー
+│   ├── __init__.py
+│   ├── base.py         # 基底クラス
+│   ├── edion.py        # エディオン
+│   └── biccamera.py    # ビックカメラ
+└── .github/workflows/
+    └── stock_monitor.yml
+```

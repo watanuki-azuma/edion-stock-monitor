@@ -1,0 +1,36 @@
+# 監視対象商品の設定ファイル
+# enabled: false にすると監視をスキップ
+
+products:
+  # エディオン
+  - name: "ポケモン30周年 ピカチュウ1/1"
+    url: "https://www.edion.com/detail.html?p_cd=00084797278"
+    site: "edion"
+    enabled: true
+    
+  # ビックカメラ iPhone 17 (256GB) 全5色
+  # ※Bot対策のため一時的に無効化（HTTP/2エラー発生）
+  - name: "iPhone 17 ラベンダー"
+    url: "https://www.biccamera.com/bc/item/14459235/"
+    site: "biccamera"
+    enabled: false
+    
+  - name: "iPhone 17 ブラック"
+    url: "https://www.biccamera.com/bc/item/14459232/"
+    site: "biccamera"
+    enabled: false
+    
+  - name: "iPhone 17 ホワイト"
+    url: "https://www.biccamera.com/bc/item/14459233/"
+    site: "biccamera"
+    enabled: false
+    
+  - name: "iPhone 17 ミストブルー"
+    url: "https://www.biccamera.com/bc/item/14459234/"
+    site: "biccamera"
+    enabled: false
+    
+  - name: "iPhone 17 セージ"
+    url: "https://www.biccamera.com/bc/item/14459236/"
+    site: "biccamera"
+    enabled: false

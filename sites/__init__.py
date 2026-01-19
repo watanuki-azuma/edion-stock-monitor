@@ -7,12 +7,16 @@
 from .base import BaseSiteHandler, ProductInfo
 from .edion import EdionHandler
 from .biccamera import BiccameraHandler
+from .yodobashi import YodobashiHandler
+from .amazon import AmazonHandler
 
 
 # サイトID → ハンドラークラスのマッピング
 SITE_HANDLERS: dict[str, type[BaseSiteHandler]] = {
     "edion": EdionHandler,
     "biccamera": BiccameraHandler,
+    "yodobashi": YodobashiHandler,
+    "amazon": AmazonHandler,
 }
 
 
@@ -37,6 +41,8 @@ __all__ = [
     "ProductInfo",
     "EdionHandler",
     "BiccameraHandler",
+    "YodobashiHandler",
+    "AmazonHandler",
     "SITE_HANDLERS",
     "get_handler",
 ]

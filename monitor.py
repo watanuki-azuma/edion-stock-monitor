@@ -23,18 +23,42 @@ from sites import get_handler, ProductInfo
 CONFIG_FILE = Path(__file__).parent / "config.yaml"
 
 
-def load_config(config_path: Path) -> list[dict]:
+def infer_site_from_url(url: str) -> str:
+    """URLからサイトIDを推測"""
+    if "edion.com" in url:
+        return "edion"
+    if "biccamera.com" in url:
+        return "biccamera"
+    if "yodobashi.com" in url:
+        return "yodobashi"
+    if "amazon.co.jp" in url:
+        return "amazon"
+    return "unknown"
+
+
+def load_config(config_path: Path) -> dict:
     """設定ファイルを読み込む"""
     if not config_path.exists():
         print(f"[ERROR] 設定ファイルが見つかりません: {config_path}")
-        return []
-    
+        return {"products": []}
+
     with open(config_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-    
+        config = yaml.safe_load(f) or {}
+
+    return config
+
+
+def load_products(config_path: Path) -> list[dict]:
+    """監視対象商品のみ取得"""
+    config = load_config(config_path)
     products = config.get("products", [])
-    # enabledが True のものだけフィルタ
     return [p for p in products if p.get("enabled", True)]
+
+
+def save_config(config_path: Path, config: dict) -> None:
+    """設定ファイルを保存"""
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, allow_unicode=True, sort_keys=False)
 
 
 def send_discord_notification(webhook_url: str, product_info: ProductInfo, site_name: str) -> bool:
@@ -129,7 +153,7 @@ async def main_async(args):
     
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "")
     
-    if not webhook_url and not args.dry_run and not args.test:
+    if not webhook_url and not args.dry_run and not args.test and not args.add:
         print("[ERROR] 環境変数 DISCORD_WEBHOOK_URL が設定されていません")
         sys.exit(1)
     
@@ -152,7 +176,32 @@ async def main_async(args):
     
     # 設定ファイルを読み込み
     config_path = Path(args.config) if args.config else CONFIG_FILE
-    products = load_config(config_path)
+
+    if args.add:
+        if not args.name or not args.url:
+            print("[ERROR] --add には --name と --url が必要です")
+            sys.exit(1)
+
+        config = load_config(config_path)
+        products = config.get("products", [])
+        site_id = args.site or infer_site_from_url(args.url)
+        product = {
+            "name": args.name,
+            "url": args.url,
+            "site": site_id,
+            "enabled": not args.disabled,
+        }
+        products.append(product)
+        config["products"] = products
+        save_config(config_path, config)
+        print("[SUCCESS] 監視対象を追加しました")
+        print(f"        name: {product['name']}")
+        print(f"        url: {product['url']}")
+        print(f"        site: {product['site']}")
+        print(f"        enabled: {product['enabled']}")
+        return
+
+    products = load_products(config_path)
     
     if not products:
         print("[ERROR] 監視対象の商品がありません")
@@ -165,11 +214,7 @@ async def main_async(args):
         products = [p for p in products if p["url"] == args.url]
         if not products:
             # URLが設定にない場合、サイトを自動判定して追加
-            site = "unknown"
-            if "edion.com" in args.url:
-                site = "edion"
-            elif "biccamera.com" in args.url:
-                site = "biccamera"
+            site = infer_site_from_url(args.url)
             products = [{"name": "手動指定", "url": args.url, "site": site}]
     
     async with async_playwright() as p:
@@ -223,6 +268,10 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="通知を送信せずに結果を表示")
     parser.add_argument("--test", action="store_true", help="テストモード（通知なし）")
     parser.add_argument("--test-notify", action="store_true", help="テスト通知を送信")
+    parser.add_argument("--add", action="store_true", help="監視対象を追加")
+    parser.add_argument("--name", help="追加する商品の名前")
+    parser.add_argument("--site", help="サイトID（省略時はURLから推定）")
+    parser.add_argument("--disabled", action="store_true", help="追加時に無効化")
     args = parser.parse_args()
     
     asyncio.run(main_async(args))

@@ -41,8 +41,14 @@ python monitor.py
 products:
   - name: "商品名"
     url: "https://..."
-    site: "edion"  # または "biccamera"
+    site: "edion"  # または "biccamera" / "yodobashi" / "amazon"
     enabled: true   # false で監視停止
+```
+
+CLIで追加する場合：
+
+```bash
+python monitor.py --add --name "商品名" --url "https://..." --site "yodobashi"
 ```
 
 ## ⚙️ 対応サイト
@@ -51,6 +57,8 @@ products:
 |----------|----------|
 | `edion` | エディオン |
 | `biccamera` | ビックカメラ |
+| `yodobashi` | ヨドバシカメラ |
+| `amazon` | Amazon.co.jp |
 
 新サイト追加は `sites/` に新しいハンドラーを作成。
 
@@ -77,7 +85,9 @@ edion_stock_monitor/
 │   ├── __init__.py
 │   ├── base.py         # 基底クラス
 │   ├── edion.py        # エディオン
-│   └── biccamera.py    # ビックカメラ
+│   ├── biccamera.py    # ビックカメラ
+│   ├── yodobashi.py    # ヨドバシカメラ
+│   └── amazon.py       # Amazon.co.jp
 └── .github/workflows/
     └── stock_monitor.yml
 ```
